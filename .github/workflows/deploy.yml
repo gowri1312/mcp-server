@@ -1,0 +1,126 @@
+name: deploy-mcp
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # required for OIDC
+  contents: read
+
+env:
+  RG:      rg-gowri-mcp-002
+  ACR:     acrgowri001
+  APP:     acgowri001
+  ACA_ENV: cae-acgowri001
+  REGION:  australiasoutheast
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build image in ACR
+        run: |
+          az acr build \
+            -r ${{ env.ACR }} \
+            -t ${{ env.APP }}:${{ github.sha }} \
+            -t ${{ env.APP }}:latest \
+            .
+
+      - name: Get ACA env ID & managed identity info
+        id: infra
+        run: |
+          ENV_ID=$(az containerapp env show \
+            -g ${{ env.RG }} -n ${{ env.ACA_ENV }} \
+            --query id -o tsv)
+          echo "env_id=$ENV_ID" >> $GITHUB_OUTPUT
+
+          UAI_CLIENT=$(az identity show \
+            -g ${{ env.RG }} -n "${{ env.APP }}-id" \
+            --query clientId -o tsv)
+          echo "uai_client=$UAI_CLIENT" >> $GITHUB_OUTPUT
+
+          UAI_PRINCIPAL=$(az identity show \
+            -g ${{ env.RG }} -n "${{ env.APP }}-id" \
+            --query principalId -o tsv)
+          echo "uai_principal=$UAI_PRINCIPAL" >> $GITHUB_OUTPUT
+
+          UAI_ID=$(az identity show \
+            -g ${{ env.RG }} -n "${{ env.APP }}-id" \
+            --query id -o tsv)
+          echo "uai_id=$UAI_ID" >> $GITHUB_OUTPUT
+
+          ACR_ID=$(az acr show -n ${{ env.ACR }} --query id -o tsv)
+          echo "acr_id=$ACR_ID" >> $GITHUB_OUTPUT
+
+          STORAGE_ID=$(az storage account show \
+            -n ${{ secrets.STORAGE_ACCOUNT_NAME }} \
+            -g ${{ env.RG }} --query id -o tsv)
+          echo "storage_id=$STORAGE_ID" >> $GITHUB_OUTPUT
+
+          MCP_KEY=$(az keyvault secret show \
+            --vault-name ${{ secrets.KV_NAME }} \
+            --name mcp-api-key --query value -o tsv)
+          echo "::add-mask::$MCP_KEY"
+          echo "mcp_key=$MCP_KEY" >> $GITHUB_OUTPUT
+
+      - name: Deploy Bicep
+        run: |
+          az deployment group create \
+            -g ${{ env.RG }} \
+            --template-file deploy/main.bicep \
+            --parameters \
+              appName=${{ env.APP }} \
+              location=${{ env.REGION }} \
+              containerImage=${{ env.ACR }}.azurecr.io/${{ env.APP }}:${{ github.sha }} \
+              acaEnvId="${{ steps.infra.outputs.env_id }}" \
+              acrId="${{ steps.infra.outputs.acr_id }}" \
+              storageAccountId="${{ steps.infra.outputs.storage_id }}" \
+              storageAccountName=${{ secrets.STORAGE_ACCOUNT_NAME }} \
+              managedIdentityClientId="${{ steps.infra.outputs.uai_client }}" \
+              managedIdentityPrincipalId="${{ steps.infra.outputs.uai_principal }}" \
+              managedIdentityId="${{ steps.infra.outputs.uai_id }}" \
+              sqlServer=${{ secrets.SQL_SERVER }} \
+              sqlDatabase=${{ secrets.SQL_DATABASE }} \
+              mcpApiKey="${{ steps.infra.outputs.mcp_key }}"
+
+      - name: Print MCP URL
+        run: |
+          az containerapp show \
+            -g ${{ env.RG }} -n ${{ env.APP }} \
+            --query "properties.configuration.ingress.fqdn" -o tsv \
+            | awk '{print "MCP URL: https://" $1 "/mcp"}'
+
+  pr-validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Validate Bicep (what-if)
+        run: |
+          az deployment group what-if \
+            -g ${{ env.RG }} \
+            --template-file deploy/main.bicep \
+            --parameters appName=${{ env.APP }} containerImage=placeholder \
+              acaEnvId=placeholder acrId=placeholder storageAccountId=placeholder \
+              storageAccountName=placeholder managedIdentityClientId=placeholder \
+              managedIdentityPrincipalId=placeholder managedIdentityId=placeholder \
+              sqlServer=placeholder sqlDatabase=placeholder mcpApiKey=placeholder
