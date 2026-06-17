@@ -92,6 +92,24 @@ az role assignment create \
   --assignee-principal-type ServicePrincipal \
   --role Contributor \
   --scope "$RG_ID" -o none
+
+# Reader at subscription scope is required so that `az login --service-principal`
+# can enumerate the subscription (az account list returns empty without it, causing
+# "No subscriptions found" in azure/login and failing the CI job).
+az role assignment create \
+  --assignee-object-id "$SP_OID" \
+  --assignee-principal-type ServicePrincipal \
+  --role Reader \
+  --scope "/subscriptions/$SUBSCRIPTION" -o none
+
+# Key Vault Secrets User so the deploy SP can read the MCP API key from Key Vault
+# during the "Get ACA env ID & managed identity info" workflow step.
+az role assignment create \
+  --assignee-object-id "$SP_OID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "Key Vault Secrets User" \
+  --scope "$KV_ID" -o none
+
 echo "✓ GitHub OIDC deploy identity created"
 
 TENANT_ID=$(az account show --query tenantId -o tsv)
