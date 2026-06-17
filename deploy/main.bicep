@@ -13,11 +13,6 @@ param acaEnvId string
 @description('Resource ID of the Azure Container Registry')
 param acrId string
 
-@description('Resource ID of the storage account (in a different resource group)')
-param storageAccountId string
-
-@description('Resource group that contains the storage account')
-param storageAccountRg string = 'gowri-rg01'
 
 @description('MCP API key — pass from Key Vault; never hard-code')
 @secure()
@@ -43,7 +38,6 @@ param storageAccountName string
 
 // ── Role definition IDs (built-in) ───────────────────────────────────────────
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
-var storageBlobDataReaderRoleId = '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1'
 
 // ── AcrPull on the registry ───────────────────────────────────────────────────
 resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
@@ -56,21 +50,6 @@ resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-// ── Storage Blob Data Reader — scoped to the storage account (cross-RG) ────────
-resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' existing = {
-  name: storageAccountName
-  scope: resourceGroup(storageAccountRg)
-}
-
-resource storageBlobReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccountId, managedIdentityPrincipalId, storageBlobDataReaderRoleId)
-  scope: storageAccount
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataReaderRoleId)
-    principalId: managedIdentityPrincipalId
-    principalType: 'ServicePrincipal'
-  }
-}
 
 // ── Container App ─────────────────────────────────────────────────────────────
 resource app 'Microsoft.App/containerApps@2024-03-01' = {

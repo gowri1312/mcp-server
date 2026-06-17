@@ -68,7 +68,7 @@ jobs:
 
           STORAGE_ID=$(az storage account show \
             -n ${{ secrets.STORAGE_ACCOUNT_NAME }} \
-            -g ${{ env.RG }} --query id -o tsv)
+            -g ${{ secrets.STORAGE_ACCOUNT_RG }} --query id -o tsv)
           echo "storage_id=$STORAGE_ID" >> $GITHUB_OUTPUT
 
           MCP_KEY=$(az keyvault secret show \
@@ -76,6 +76,15 @@ jobs:
             --name mcp-api-key --query value -o tsv)
           echo "::add-mask::$MCP_KEY"
           echo "mcp_key=$MCP_KEY" >> $GITHUB_OUTPUT
+
+      - name: Grant Storage Blob Data Reader (cross-RG)
+        run: |
+          az role assignment create \
+            --assignee-object-id ${{ steps.infra.outputs.uai_principal }} \
+            --assignee-principal-type ServicePrincipal \
+            --role "Storage Blob Data Reader" \
+            --scope ${{ steps.infra.outputs.storage_id }} \
+            --output none 2>/dev/null || echo "Role already assigned"
 
       - name: Deploy Bicep
         run: |
@@ -88,7 +97,6 @@ jobs:
               containerImage=${{ env.ACR }}.azurecr.io/${{ env.APP }}:${{ github.sha }} \
               acaEnvId="${{ steps.infra.outputs.env_id }}" \
               acrId="${{ steps.infra.outputs.acr_id }}" \
-              storageAccountId="${{ steps.infra.outputs.storage_id }}" \
               storageAccountName=${{ secrets.STORAGE_ACCOUNT_NAME }} \
               managedIdentityClientId="${{ steps.infra.outputs.uai_client }}" \
               managedIdentityPrincipalId="${{ steps.infra.outputs.uai_principal }}" \
