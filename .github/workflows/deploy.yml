@@ -66,9 +66,10 @@ jobs:
           ACR_ID=$(az acr show -n ${{ env.ACR }} --query id -o tsv)
           echo "acr_id=$ACR_ID" >> $GITHUB_OUTPUT
 
-          STORAGE_ID=$(az storage account show \
-            -n ${{ secrets.STORAGE_ACCOUNT_NAME }} \
-            -g ${{ secrets.STORAGE_ACCOUNT_RG }} --query id -o tsv)
+          STORAGE_ID=$(az storage account list \
+            --query "[?name=='${{ secrets.STORAGE_ACCOUNT_NAME }}'].id | [0]" \
+            -o tsv)
+          test -n "$STORAGE_ID" || { echo "Storage account not found: ${{ secrets.STORAGE_ACCOUNT_NAME }}"; exit 1; }
           echo "storage_id=$STORAGE_ID" >> $GITHUB_OUTPUT
 
           MCP_KEY=$(az keyvault secret show \
