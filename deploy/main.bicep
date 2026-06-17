@@ -13,8 +13,11 @@ param acaEnvId string
 @description('Resource ID of the Azure Container Registry')
 param acrId string
 
-@description('Resource ID of the storage account (for role assignment)')
+@description('Resource ID of the storage account (in a different resource group)')
 param storageAccountId string
+
+@description('Resource group that contains the storage account')
+param storageAccountRg string = 'gowri-rg01'
 
 @description('MCP API key — pass from Key Vault; never hard-code')
 @secure()
@@ -53,10 +56,15 @@ resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-// ── Storage Blob Data Reader on the storage account ───────────────────────────
+// ── Storage Blob Data Reader — scoped to the storage account (cross-RG) ────────
+resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' existing = {
+  name: storageAccountName
+  scope: resourceGroup(storageAccountRg)
+}
+
 resource storageBlobReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(storageAccountId, managedIdentityPrincipalId, storageBlobDataReaderRoleId)
-  scope: resourceGroup()
+  scope: storageAccount
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataReaderRoleId)
     principalId: managedIdentityPrincipalId
