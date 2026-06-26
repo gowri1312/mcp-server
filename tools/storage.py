@@ -1,7 +1,6 @@
 import json
 import logging
 
-from azure.identity import ManagedIdentityCredential
 from azure.storage.blob import BlobServiceClient
 
 logger = logging.getLogger("mcp.storage")
@@ -9,12 +8,11 @@ logger = logging.getLogger("mcp.storage")
 _clients: dict[str, BlobServiceClient] = {}
 
 
-def _get_client(account_name: str, client_id: str) -> BlobServiceClient:
+def _get_client(account_name: str, sas_token: str) -> BlobServiceClient:
     if account_name not in _clients:
-        credential = ManagedIdentityCredential(client_id=client_id)
+        token = sas_token if sas_token.startswith("?") else f"?{sas_token}"
         _clients[account_name] = BlobServiceClient(
-            f"https://{account_name}.blob.core.windows.net",
-            credential=credential,
+            f"https://{account_name}.blob.core.windows.net{token}"
         )
     return _clients[account_name]
 
@@ -27,7 +25,7 @@ def register_storage_tools(mcp, settings):
         Returns a JSON array of container names.
         """
         try:
-            client = _get_client(settings.storage_account_name, settings.managed_identity_client_id)
+            client = _get_client(settings.storage_account_name, settings.storage_sas_token)
             containers = [c["name"] for c in client.list_containers()]
             return json.dumps(containers, indent=2)
         except Exception as e:
@@ -45,7 +43,7 @@ def register_storage_tools(mcp, settings):
         """
         max_results = max(1, min(max_results, 200))
         try:
-            client = _get_client(settings.storage_account_name, settings.managed_identity_client_id)
+            client = _get_client(settings.storage_account_name, settings.storage_sas_token)
             blobs = client.get_container_client(container).list_blobs(name_starts_with=prefix or None)
             result = []
             for i, b in enumerate(blobs):
@@ -75,7 +73,7 @@ def register_storage_tools(mcp, settings):
         """
         max_bytes = max(1, min(max_bytes, 524288))
         try:
-            client = _get_client(settings.storage_account_name, settings.managed_identity_client_id)
+            client = _get_client(settings.storage_account_name, settings.storage_sas_token)
             blob_client = client.get_blob_client(container=container, blob=blob_name)
             data = blob_client.download_blob(max_concurrency=1).readall()
             if len(data) > max_bytes:

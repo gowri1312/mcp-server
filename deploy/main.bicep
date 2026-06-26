@@ -33,8 +33,12 @@ param sqlServer string
 @description('Azure SQL database name')
 param sqlDatabase string
 
-@description('Azure Storage account name')
+@description('Azure Storage account name (separate subscription, accessed via SAS token)')
 param storageAccountName string
+
+@description('Storage account-level SAS token — pass from Key Vault; never hard-code')
+@secure()
+param storageSasToken string
 
 // ── Role definition IDs (built-in) ───────────────────────────────────────────
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
@@ -70,7 +74,8 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
         allowInsecure: false
       }
       secrets: [
-        { name: 'mcp-api-key', value: mcpApiKey }
+        { name: 'mcp-api-key',       value: mcpApiKey }
+        { name: 'storage-sas-token', value: storageSasToken }
       ]
       registries: [
         { server: split(containerImage, '/')[0], identity: managedIdentityId }
@@ -89,6 +94,7 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'SQL_SERVER',                    value: sqlServer }
             { name: 'SQL_DATABASE',                  value: sqlDatabase }
             { name: 'STORAGE_ACCOUNT_NAME',          value: storageAccountName }
+            { name: 'STORAGE_SAS_TOKEN',              secretRef: 'storage-sas-token' }
           ]
           probes: [
             {

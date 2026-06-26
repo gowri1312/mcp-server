@@ -66,26 +66,17 @@ jobs:
           ACR_ID=$(az acr show -n ${{ env.ACR }} --query id -o tsv)
           echo "acr_id=$ACR_ID" >> $GITHUB_OUTPUT
 
-          STORAGE_ID=$(az storage account list \
-            --query "[?name=='${{ secrets.STORAGE_ACCOUNT_NAME }}'].id | [0]" \
-            -o tsv)
-          test -n "$STORAGE_ID" || { echo "Storage account not found: ${{ secrets.STORAGE_ACCOUNT_NAME }}"; exit 1; }
-          echo "storage_id=$STORAGE_ID" >> $GITHUB_OUTPUT
-
           MCP_KEY=$(az keyvault secret show \
             --vault-name ${{ secrets.KV_NAME }} \
             --name mcp-api-key --query value -o tsv)
           echo "::add-mask::$MCP_KEY"
           echo "mcp_key=$MCP_KEY" >> $GITHUB_OUTPUT
 
-      - name: Grant Storage Blob Data Reader (cross-RG)
-        run: |
-          az role assignment create \
-            --assignee-object-id ${{ steps.infra.outputs.uai_principal }} \
-            --assignee-principal-type ServicePrincipal \
-            --role "Storage Blob Data Reader" \
-            --scope ${{ steps.infra.outputs.storage_id }} \
-            --output none 2>/dev/null || echo "Role already assigned"
+          STORAGE_SAS=$(az keyvault secret show \
+            --vault-name ${{ secrets.KV_NAME }} \
+            --name storage-sas-token --query value -o tsv)
+          echo "::add-mask::$STORAGE_SAS"
+          echo "storage_sas=$STORAGE_SAS" >> $GITHUB_OUTPUT
 
       - name: Deploy Bicep
         run: |
@@ -104,7 +95,8 @@ jobs:
               managedIdentityId="${{ steps.infra.outputs.uai_id }}" \
               sqlServer=${{ secrets.SQL_SERVER }} \
               sqlDatabase=${{ secrets.SQL_DATABASE }} \
-              mcpApiKey="${{ steps.infra.outputs.mcp_key }}"
+              mcpApiKey="${{ steps.infra.outputs.mcp_key }}" \
+              storageSasToken="${{ steps.infra.outputs.storage_sas }}"
 
       - name: Print MCP URL
         run: |
@@ -134,7 +126,8 @@ jobs:
             -g ${{ env.RG }} \
             --template-file deploy/main.bicep \
             --parameters appName=${{ env.APP }} containerImage=placeholder \
-              acaEnvId=placeholder acrId=placeholder storageAccountId=placeholder \
+              acaEnvId=placeholder acrId=placeholder \
               storageAccountName=placeholder managedIdentityClientId=placeholder \
               managedIdentityPrincipalId=placeholder managedIdentityId=placeholder \
-              sqlServer=placeholder sqlDatabase=placeholder mcpApiKey=placeholder
+              sqlServer=placeholder sqlDatabase=placeholder mcpApiKey=placeholder \
+              storageSasToken=placeholder

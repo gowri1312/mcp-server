@@ -19,8 +19,11 @@ GH_REPO="gowri1312/mcp-server"
 SQL_SERVER="sql-drmexp-dev-ase-portal-001.database.windows.net"
 SQL_DATABASE="db-drmexp-dev-ase-portal-001"
 
-# Your Azure Storage account (must already exist)
-STORAGE_ACCOUNT="gowristorageac01"
+# Your Azure Storage account (must already exist; lives in a DIFFERENT
+# subscription, so it's accessed via an account-level SAS token rather
+# than the managed identity's RBAC).
+STORAGE_ACCOUNT="sadrmdevcostexport"
+STORAGE_SAS_TOKEN=""   # set below, or paste a pre-generated SAS token here
 
 # ── Login & set subscription ───────────────────────────────────────────────────
 az account set --subscription "$SUBSCRIPTION"
@@ -47,6 +50,28 @@ MCP_API_KEY=$(openssl rand -hex 32)
 az keyvault secret set --vault-name "$KV" --name mcp-api-key --value "$MCP_API_KEY" -o none
 echo "✓ Secret stored: mcp-api-key"
 echo "  MCP_API_KEY=$MCP_API_KEY  ← save this for client config"
+
+# Storage account SAS token (account-level, read-only, service+container+object).
+# Since the storage account is in a different subscription than the current
+# CLI session, generate the SAS there (switch subscription first) and paste it
+# below, or supply STORAGE_SAS_TOKEN at the top of this script.
+if [ -z "$STORAGE_SAS_TOKEN" ]; then
+  echo ""
+  echo "──────────────────────────────────────────────────────────"
+  echo "ACTION REQUIRED: generate a read-only SAS token for $STORAGE_ACCOUNT"
+  echo "in its own subscription, then re-run with STORAGE_SAS_TOKEN set:"
+  echo ""
+  echo "  az account set --subscription <storage-account-subscription>"
+  echo "  az storage account generate-sas \\"
+  echo "    --account-name $STORAGE_ACCOUNT \\"
+  echo "    --services b --resource-types sco --permissions rl \\"
+  echo "    --expiry \$(date -u -d '+1 year' '+%Y-%m-%dT%H:%MZ') -o tsv"
+  echo "──────────────────────────────────────────────────────────"
+  echo ""
+else
+  az keyvault secret set --vault-name "$KV" --name storage-sas-token --value "$STORAGE_SAS_TOKEN" -o none
+  echo "✓ Secret stored: storage-sas-token"
+fi
 
 # ── User-assigned managed identity ────────────────────────────────────────────
 az identity create -g "$RG" -n "${APP}-id" -l "$LOC" -o none
